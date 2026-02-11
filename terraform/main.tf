@@ -1,0 +1,99 @@
+terraform {
+  required_version = ">= 1.5.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+
+  # Uncomment for remote state management
+  # backend "s3" {
+  #   bucket         = "your-terraform-state-bucket"
+  #   key            = "aws-ai-agent/terraform.tfstate"
+  #   region         = "us-east-1"
+  #   encrypt        = true
+  #   dynamodb_table = "terraform-state-lock"
+  # }
+}
+
+provider "aws" {
+  region = var.aws_region
+
+  default_tags {
+    tags = {
+      Project     = "AWS AI Agent"
+      Environment = var.environment
+      ManagedBy   = "Terraform"
+    }
+  }
+}
+
+# VPC Module
+module "vpc" {
+  source = "./modules/vpc"
+
+  environment         = var.environment
+  vpc_cidr            = var.vpc_cidr
+  availability_zones  = var.availability_zones
+  public_subnet_cidrs = var.public_subnet_cidrs
+  private_subnet_cidrs = var.private_subnet_cidrs
+}
+
+# IAM Module
+module "iam" {
+  source = "./modules/iam"
+
+  environment = var.environment
+  s3_bucket_arn = module.s3.bucket_arn
+}
+
+# S3 Module for Document Storage
+module "s3" {
+  source = "./modules/s3"
+
+  environment = var.environment
+  bucket_name = var.s3_bucket_name
+}
+
+# Cognito Module
+module "cognito" {
+  source = "./modules/cognito"
+
+  environment       = var.environment
+  user_pool_name    = var.cognito_user_pool_name
+  app_client_name   = var.cognito_app_client_name
+}
+
+# Bedrock Module (Knowledge Base)
+module "bedrock" {
+  source = "./modules/bedrock"
+
+  environment           = var.environment
+  knowledge_base_name   = var.bedrock_knowledge_base_name
+  s3_bucket_arn         = module.s3.bucket_arn
+  bedrock_execution_role_arn = module.iam.bedrock_execution_role_arn
+}
+
+# ECS Module for FastAPI Application
+module "ecs" {
+  source = "./modules/ecs"
+
+  environment               = var.environment
+  vpc_id                    = module.vpc.vpc_id
+  private_subnet_ids        = module.vpc.private_subnet_ids
+  public_subnet_ids         = module.vpc.public_subnet_ids
+  ecs_task_execution_role_arn = module.iam.ecs_task_execution_role_arn
+  ecs_task_role_arn         = module.iam.ecs_task_role_arn
+  container_image           = var.container_image
+  container_port            = var.container_port
+
+  # Environment variables for the container
+  cognito_user_pool_id      = module.cognito.user_pool_id
+  cognito_app_client_id     = module.cognito.app_client_id
+  s3_documents_bucket       = module.s3.bucket_name
+  bedrock_knowledge_base_id = module.bedrock.knowledge_base_id
+  langfuse_public_key       = var.langfuse_public_key
+  langfuse_secret_key       = var.langfuse_secret_key
+}
