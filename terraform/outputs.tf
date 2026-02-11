@@ -57,3 +57,18 @@ output "api_endpoint" {
   description = "API endpoint URL"
   value       = "https://${module.ecs.alb_dns_name}"
 }
+
+output "ecr_repository_url" {
+  description = "URL of the ECR repository"
+  value       = module.ecr.repository_url
+}
+
+output "agentcore_runtime_id" {
+  description = "ID of the AgentCore agent runtime"
+  value       = module.agentcore.agent_runtime_id
+}
+
+output "agentcore_runtime_arn" {
+  description = "ARN of the AgentCore agent runtime"
+  value       = module.agentcore.agent_runtime_arn
+}

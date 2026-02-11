@@ -4,7 +4,11 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 6.21"
+    }
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.11"
     }
   }
 
@@ -34,19 +38,11 @@ provider "aws" {
 module "vpc" {
   source = "./modules/vpc"
 
-  environment         = var.environment
-  vpc_cidr            = var.vpc_cidr
-  availability_zones  = var.availability_zones
-  public_subnet_cidrs = var.public_subnet_cidrs
+  environment          = var.environment
+  vpc_cidr             = var.vpc_cidr
+  availability_zones   = var.availability_zones
+  public_subnet_cidrs  = var.public_subnet_cidrs
   private_subnet_cidrs = var.private_subnet_cidrs
-}
-
-# IAM Module
-module "iam" {
-  source = "./modules/iam"
-
-  environment = var.environment
-  s3_bucket_arn = module.s3.bucket_arn
 }
 
 # S3 Module for Document Storage
@@ -61,18 +57,34 @@ module "s3" {
 module "cognito" {
   source = "./modules/cognito"
 
-  environment       = var.environment
-  user_pool_name    = var.cognito_user_pool_name
-  app_client_name   = var.cognito_app_client_name
+  environment     = var.environment
+  user_pool_name  = var.cognito_user_pool_name
+  app_client_name = var.cognito_app_client_name
+}
+
+# ECR Module for Container Images
+module "ecr" {
+  source = "./modules/ecr"
+
+  environment     = var.environment
+  repository_name = var.ecr_repository_name
+}
+
+# IAM Module
+module "iam" {
+  source = "./modules/iam"
+
+  environment   = var.environment
+  s3_bucket_arn = module.s3.bucket_arn
 }
 
 # Bedrock Module (Knowledge Base)
 module "bedrock" {
   source = "./modules/bedrock"
 
-  environment           = var.environment
-  knowledge_base_name   = var.bedrock_knowledge_base_name
-  s3_bucket_arn         = module.s3.bucket_arn
+  environment                = var.environment
+  knowledge_base_name        = var.bedrock_knowledge_base_name
+  s3_bucket_arn              = module.s3.bucket_arn
   bedrock_execution_role_arn = module.iam.bedrock_execution_role_arn
 }
 
@@ -80,16 +92,32 @@ module "bedrock" {
 module "ecs" {
   source = "./modules/ecs"
 
-  environment               = var.environment
-  vpc_id                    = module.vpc.vpc_id
-  private_subnet_ids        = module.vpc.private_subnet_ids
-  public_subnet_ids         = module.vpc.public_subnet_ids
+  environment                 = var.environment
+  vpc_id                      = module.vpc.vpc_id
+  private_subnet_ids          = module.vpc.private_subnet_ids
+  public_subnet_ids           = module.vpc.public_subnet_ids
   ecs_task_execution_role_arn = module.iam.ecs_task_execution_role_arn
-  ecs_task_role_arn         = module.iam.ecs_task_role_arn
-  container_image           = var.container_image
-  container_port            = var.container_port
+  ecs_task_role_arn           = module.iam.ecs_task_role_arn
+  container_image             = var.container_image
+  container_port              = var.container_port
 
   # Environment variables for the container
+  cognito_user_pool_id      = module.cognito.user_pool_id
+  cognito_app_client_id     = module.cognito.app_client_id
+  s3_documents_bucket       = module.s3.bucket_name
+  bedrock_knowledge_base_id = module.bedrock.knowledge_base_id
+  langfuse_public_key       = var.langfuse_public_key
+  langfuse_secret_key       = var.langfuse_secret_key
+}
+
+# AgentCore Module (Bedrock AgentCore Runtime)
+module "agentcore" {
+  source = "./modules/agentcore"
+
+  environment               = var.environment
+  agentcore_role_arn        = module.iam.agentcore_execution_role_arn
+  ecr_repository_url        = module.ecr.repository_url
+  container_image_tag       = var.container_image_tag
   cognito_user_pool_id      = module.cognito.user_pool_id
   cognito_app_client_id     = module.cognito.app_client_id
   s3_documents_bucket       = module.s3.bucket_name

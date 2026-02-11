@@ -75,6 +75,20 @@ variable "container_port" {
   default     = 8000
 }
 
+# ECR Variables
+variable "ecr_repository_name" {
+  description = "Name of the ECR repository"
+  type        = string
+  default     = "aws-ai-agent"
+}
+
+# AgentCore Variables
+variable "container_image_tag" {
+  description = "Tag of the container image for AgentCore"
+  type        = string
+  default     = "latest"
+}
+
 # Langfuse Variables
 variable "langfuse_public_key" {
   description = "Langfuse public key for observability"
