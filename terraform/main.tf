@@ -22,6 +22,16 @@ terraform {
   # }
 }
 
+data "aws_caller_identity" "current" {}
+
+locals {
+  ssm_prefix                   = "/${var.environment}/ai-agent"
+  langfuse_public_key_ssm_name = "${local.ssm_prefix}/langfuse-public-key"
+  langfuse_secret_key_ssm_name = "${local.ssm_prefix}/langfuse-secret-key"
+  langfuse_public_key_ssm_arn  = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${local.langfuse_public_key_ssm_name}"
+  langfuse_secret_key_ssm_arn  = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${local.langfuse_secret_key_ssm_name}"
+}
+
 provider "aws" {
   region = var.aws_region
 
@@ -102,26 +112,26 @@ module "ecs" {
   container_port              = var.container_port
 
   # Environment variables for the container
-  cognito_user_pool_id      = module.cognito.user_pool_id
-  cognito_app_client_id     = module.cognito.app_client_id
-  s3_documents_bucket       = module.s3.bucket_name
-  bedrock_knowledge_base_id = module.bedrock.knowledge_base_id
-  langfuse_public_key       = var.langfuse_public_key
-  langfuse_secret_key       = var.langfuse_secret_key
+  cognito_user_pool_id        = module.cognito.user_pool_id
+  cognito_app_client_id       = module.cognito.app_client_id
+  s3_documents_bucket         = module.s3.bucket_name
+  bedrock_knowledge_base_id   = module.bedrock.knowledge_base_id
+  langfuse_public_key_ssm_arn = local.langfuse_public_key_ssm_arn
+  langfuse_secret_key_ssm_arn = local.langfuse_secret_key_ssm_arn
 }
 
 # AgentCore Module (Bedrock AgentCore Runtime)
 module "agentcore" {
   source = "./modules/agentcore"
 
-  environment               = var.environment
-  agentcore_role_arn        = module.iam.agentcore_execution_role_arn
-  ecr_repository_url        = module.ecr.repository_url
-  container_image_tag       = var.container_image_tag
-  cognito_user_pool_id      = module.cognito.user_pool_id
-  cognito_app_client_id     = module.cognito.app_client_id
-  s3_documents_bucket       = module.s3.bucket_name
-  bedrock_knowledge_base_id = module.bedrock.knowledge_base_id
-  langfuse_public_key       = var.langfuse_public_key
-  langfuse_secret_key       = var.langfuse_secret_key
+  environment                  = var.environment
+  agentcore_role_arn           = module.iam.agentcore_execution_role_arn
+  ecr_repository_url           = module.ecr.repository_url
+  container_image_tag          = var.container_image_tag
+  cognito_user_pool_id         = module.cognito.user_pool_id
+  cognito_app_client_id        = module.cognito.app_client_id
+  s3_documents_bucket          = module.s3.bucket_name
+  bedrock_knowledge_base_id    = module.bedrock.knowledge_base_id
+  langfuse_public_key_ssm_name = local.langfuse_public_key_ssm_name
+  langfuse_secret_key_ssm_name = local.langfuse_secret_key_ssm_name
 }

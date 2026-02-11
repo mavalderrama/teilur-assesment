@@ -89,15 +89,3 @@ variable "container_image_tag" {
   default     = "latest"
 }
 
-# Langfuse Variables
-variable "langfuse_public_key" {
-  description = "Langfuse public key for observability"
-  type        = string
-  sensitive   = true
-}
-
-variable "langfuse_secret_key" {
-  description = "Langfuse secret key for observability"
-  type        = string
-  sensitive   = true
-}

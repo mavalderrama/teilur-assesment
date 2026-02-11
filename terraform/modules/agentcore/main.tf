@@ -1,5 +1,15 @@
 data "aws_region" "current" {}
 
+data "aws_ssm_parameter" "langfuse_public_key" {
+  name            = var.langfuse_public_key_ssm_name
+  with_decryption = true
+}
+
+data "aws_ssm_parameter" "langfuse_secret_key" {
+  name            = var.langfuse_secret_key_ssm_name
+  with_decryption = true
+}
+
 resource "aws_bedrockagentcore_agent_runtime" "main" {
   agent_runtime_name = "${var.environment}-ai-agent-runtime"
   role_arn           = var.agentcore_role_arn
@@ -25,8 +35,8 @@ resource "aws_bedrockagentcore_agent_runtime" "main" {
     BEDROCK_REGION            = data.aws_region.current.id
     BEDROCK_MODEL_ID          = "anthropic.claude-3-sonnet-20240229-v1:0"
     OBSERVABILITY_PROVIDER    = "langfuse"
-    LANGFUSE_PUBLIC_KEY       = var.langfuse_public_key
-    LANGFUSE_SECRET_KEY       = var.langfuse_secret_key
+    LANGFUSE_PUBLIC_KEY       = data.aws_ssm_parameter.langfuse_public_key.value
+    LANGFUSE_SECRET_KEY       = data.aws_ssm_parameter.langfuse_secret_key.value
     LANGFUSE_HOST             = "https://cloud.langfuse.com"
     API_HOST                  = "0.0.0.0"
     API_PORT                  = "8000"

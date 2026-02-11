@@ -175,12 +175,15 @@ resource "aws_ecs_task_definition" "main" {
         { name = "BEDROCK_REGION", value = data.aws_region.current.id },
         { name = "BEDROCK_MODEL_ID", value = "anthropic.claude-3-sonnet-20240229-v1:0" },
         { name = "OBSERVABILITY_PROVIDER", value = "langfuse" },
-        { name = "LANGFUSE_PUBLIC_KEY", value = var.langfuse_public_key },
-        { name = "LANGFUSE_SECRET_KEY", value = var.langfuse_secret_key },
         { name = "LANGFUSE_HOST", value = "https://cloud.langfuse.com" },
         { name = "API_HOST", value = "0.0.0.0" },
         { name = "API_PORT", value = tostring(var.container_port) },
         { name = "LOG_LEVEL", value = "INFO" },
+      ]
+
+      secrets = [
+        { name = "LANGFUSE_PUBLIC_KEY", valueFrom = var.langfuse_public_key_ssm_arn },
+        { name = "LANGFUSE_SECRET_KEY", valueFrom = var.langfuse_secret_key_ssm_arn },
       ]
 
       logConfiguration = {

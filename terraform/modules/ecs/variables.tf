@@ -58,14 +58,12 @@ variable "bedrock_knowledge_base_id" {
   type        = string
 }
 
-variable "langfuse_public_key" {
-  description = "Langfuse public key"
+variable "langfuse_public_key_ssm_arn" {
+  description = "ARN of the SSM parameter containing the Langfuse public key"
   type        = string
-  sensitive   = true
 }
 
-variable "langfuse_secret_key" {
-  description = "Langfuse secret key"
+variable "langfuse_secret_key_ssm_arn" {
+  description = "ARN of the SSM parameter containing the Langfuse secret key"
   type        = string
-  sensitive   = true
 }
