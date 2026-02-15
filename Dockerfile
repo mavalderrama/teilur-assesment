@@ -9,12 +9,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency files
-COPY requirements.txt pyproject.toml ./
+# Copy project files
+COPY pyproject.toml ./
+COPY src/ ./src/
 
 # Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir .
 
 # Final stage
 FROM python:3.11-slim

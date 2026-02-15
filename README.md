@@ -273,7 +273,8 @@ All 5 queries demonstrated in `notebooks/demo.ipynb`:
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `AWS_REGION` | Yes | us-east-1 | AWS region |
+| `AWS_REGION` | Yes | us-east-2 | AWS region |
+| `BEDROCK_LLM_REGION` | No | us-east-2 | Region where Bedrock LLM runs (can differ from AWS_REGION) |
 | `AWS_ACCESS_KEY_ID` | Yes | - | AWS credentials |
 | `BEDROCK_MODEL_ID` | No | claude-3-sonnet | Bedrock model |
 | `OBSERVABILITY_PROVIDER` | No | langfuse | langfuse/langsmith/none |
@@ -291,3 +292,25 @@ MIT
 
 **Built with Clean Architecture, LangGraph, and AWS Bedrock** 🚀
 
+
+1. Upload documents to S3
+
+# Single file
+aws s3 cp /path/to/document.pdf s3://maval-bedrock-knowledge-base-dev/
+
+# Entire folder
+aws s3 cp /path/to/docs/ s3://maval-bedrock-knowledge-base-dev/ --recursive
+
+Supported formats: PDF, TXT, MD, HTML, DOC/DOCX, CSV, XLS/XLSX, and more.
+
+2. Sync the Knowledge Base data source
+
+aws bedrock-agent start-ingestion-job \
+--knowledge-base-id DYAHO3ATNU \
+--data-source-id 7XHJWC0VDD
+
+3. Check ingestion status
+
+aws bedrock-agent list-ingestion-jobs \
+--knowledge-base-id DYAHO3ATNU \
+--data-source-id 7XHJWC0VDD
