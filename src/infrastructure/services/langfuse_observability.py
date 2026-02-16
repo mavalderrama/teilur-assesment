@@ -27,17 +27,27 @@ class LangfuseObservabilityService(IObservabilityService):
         secret_key: str,
         host: str = "https://cloud.langfuse.com",
     ) -> None:
-        # Initialize the singleton Langfuse client (v3 pattern)
+        self._public_key = public_key
+        self._secret_key = secret_key
+        self._host = host
+        self._last_handler = None
+
+        # Initialize the Langfuse client
         self._langfuse = Langfuse(
             public_key=public_key,
             secret_key=secret_key,
             host=host,
         )
 
-        logger.info(
-            "Langfuse observability service initialized (v3 SDK)",
-            extra={"host": host},
-        )
+        # Verify credentials
+        try:
+            auth_ok = self._langfuse.auth_check()
+            logger.info(
+                "Langfuse observability service initialized",
+                extra={"host": host, "auth_check": auth_ok},
+            )
+        except Exception as e:
+            logger.error(f"Langfuse auth check failed: {e}", extra={"host": host})
 
     def get_langchain_callback(
         self,
@@ -46,20 +56,25 @@ class LangfuseObservabilityService(IObservabilityService):
         tags: Optional[list[str]] = None,
         metadata: Optional[dict[str, Any]] = None,
     ) -> Any:
-        """
-        Get a Langfuse CallbackHandler for automatic LangChain/LangGraph tracing.
-
-        In v3, CallbackHandler() takes no credential args - it uses the singleton
-        client initialized in __init__. Trace attributes (user_id, session_id, tags)
-        should be passed via config["metadata"] with langfuse_ prefix when invoking
-        the chain/graph. See _build_invoke_config in the orchestrator.
-        """
+        """Get a Langfuse CallbackHandler for automatic LangChain/LangGraph tracing."""
         try:
-            return CallbackHandler()
+            handler = CallbackHandler(
+                public_key=self._public_key,
+                secret_key=self._secret_key,
+                host=self._host,
+                user_id=user_id,
+                session_id=session_id,
+                tags=tags or ["agent_query"],
+                metadata=metadata,
+            )
+            self._last_handler = handler
+            logger.info("Langfuse CallbackHandler created", extra={"user_id": user_id})
+            return handler
         except Exception as e:
-            logger.warning(
-                "Failed to create Langfuse CallbackHandler, tracing disabled for this request",
+            logger.error(
+                f"Failed to create Langfuse CallbackHandler: {e}",
                 extra={"error": str(e)},
+                exc_info=True,
             )
             return None
 
@@ -175,4 +190,14 @@ class LangfuseObservabilityService(IObservabilityService):
             return None
 
     def flush(self) -> None:
-        self._langfuse.flush()
+        if self._last_handler:
+            try:
+                self._last_handler.langfuse.flush()
+                logger.info("Langfuse handler flushed")
+            except Exception as e:
+                logger.error(f"Langfuse handler flush failed: {e}")
+        try:
+            self._langfuse.flush()
+            logger.info("Langfuse client flushed")
+        except Exception as e:
+            logger.error(f"Langfuse client flush failed: {e}")

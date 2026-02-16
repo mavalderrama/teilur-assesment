@@ -7,7 +7,7 @@ from datetime import datetime
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from src.di.container import DIContainer
 from src.infrastructure.logging import get_logger
@@ -181,28 +181,58 @@ async def invocations(request: Request):
     """
     AgentCore invocation endpoint.
 
-    Accepts {"input": {"prompt": "..."}} and delegates to the agent orchestrator.
+    Accepts {"query": "...", "stream": true/false} and delegates to the agent orchestrator.
+    Supports both streaming (SSE) and non-streaming responses.
     """
     from src.di.container import get_container
+    from src.presentation.api.schemas.response import AgentStepResponse, QueryResponse
+    from src.presentation.streaming.event_stream import EventStreamFormatter
 
     body = await request.json()
-    # Support both {"input": {"prompt": "..."}} and {"query": "..."}
     prompt = body.get("query") or body.get("input", {}).get("prompt", "")
+    stream = body.get("stream", False)
     if not prompt:
         return JSONResponse(status_code=400, content={"error": "No prompt provided"})
 
     try:
         container = get_container()
         orchestrator = container.agent_orchestrator
-        result = await orchestrator.process_query(prompt, user_id="agentcore-user")
-        return {
-            "output": {
-                "message": result.answer,
-                "sources": result.sources,
-                "trace_id": result.trace_id,
-                "timestamp": datetime.now().isoformat(),
-            }
-        }
+
+        if stream:
+            event_stream = orchestrator.process_query_stream(prompt, user_id="agentcore-user")
+            formatted_stream = EventStreamFormatter.stream_events(event_stream)
+
+            return StreamingResponse(
+                formatted_stream,
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+        else:
+            result = await orchestrator.process_query(prompt, user_id="agentcore-user")
+
+            return QueryResponse(
+                query=result.query,
+                answer=result.answer,
+                reasoning_steps=[
+                    AgentStepResponse(
+                        step_number=step.step_number,
+                        action=step.action,
+                        action_input=step.action_input,
+                        observation=step.observation,
+                        timestamp=step.timestamp,
+                    )
+                    for step in result.reasoning_steps
+                ],
+                sources=result.sources,
+                execution_time_ms=result.execution_time_ms,
+                timestamp=result.timestamp,
+                trace_id=result.trace_id,
+                trace_url=result.trace_url,
+            )
     except Exception as e:
         logger.error(f"Invocation failed: {str(e)}", exc_info=True)
         return JSONResponse(status_code=500, content={"error": str(e)})

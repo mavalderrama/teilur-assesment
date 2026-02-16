@@ -33,6 +33,7 @@ class QueryResult:
     execution_time_ms: float
     timestamp: datetime
     trace_id: Optional[str] = None
+    trace_url: Optional[str] = None
     metadata: Optional[dict[str, Any]] = None
 
     def __post_init__(self) -> None:

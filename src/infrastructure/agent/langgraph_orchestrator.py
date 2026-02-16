@@ -140,24 +140,14 @@ When answering questions:
 Think step by step and use the tools methodically to answer user queries accurately."""
 
     def _build_invoke_config(self, user_id: str) -> dict[str, Any]:
-        """
-        Build LangGraph invoke config with observability callbacks.
-
-        Per Langfuse v3 docs:
-        - CallbackHandler() takes no args (uses singleton Langfuse client)
-        - Trace attributes are passed via config["metadata"] with langfuse_ prefix
-        Per LangSmith docs:
-        - Auto-traces via LANGCHAIN_TRACING_V2 env var, no callback needed
-        """
-        config: dict[str, Any] = {
-            "metadata": {
-                "langfuse_user_id": user_id,
-                "langfuse_tags": ["agent_query"],
-            },
-        }
+        """Build LangGraph invoke config with observability callbacks."""
+        config: dict[str, Any] = {}
 
         if self._observability:
-            callback = self._observability.get_langchain_callback()
+            callback = self._observability.get_langchain_callback(
+                user_id=user_id,
+                tags=["agent_query"],
+            )
             if callback is not None:
                 config["callbacks"] = [callback]
 
@@ -234,9 +224,24 @@ Think step by step and use the tools methodically to answer user queries accurat
                 },
             )
 
-            # Flush observability data
+            # Flush observability data and get trace URL
+            trace_id = None
+            trace_url = None
             if self._observability:
                 self._observability.flush()
+                try:
+                    handler = getattr(self._observability, '_last_handler', None)
+                    if handler:
+                        # Try different methods to get trace ID
+                        if hasattr(handler, 'get_trace_id'):
+                            trace_id = handler.get_trace_id()
+                        elif hasattr(handler, 'trace_id'):
+                            trace_id = handler.trace_id
+                        if trace_id:
+                            trace_url = self._observability.get_trace_url(trace_id)
+                            logger.info("Langfuse trace captured", extra={"trace_id": trace_id, "trace_url": trace_url})
+                except Exception as e:
+                    logger.warning(f"Could not get Langfuse trace ID: {e}")
 
             return QueryResult(
                 query=query,
@@ -245,7 +250,8 @@ Think step by step and use the tools methodically to answer user queries accurat
                 sources=[],
                 execution_time_ms=execution_time_ms,
                 timestamp=datetime.now(),
-                trace_id=None,
+                trace_id=trace_id,
+                trace_url=trace_url,
             )
 
         except Exception as e:
