@@ -1,8 +1,14 @@
 """AWS Cognito authentication service."""
+from typing import Any
+
 import boto3
 from botocore.config import Config
 from jose import JWTError, jwt
 from jose.backends import RSAKey
+
+from src.infrastructure.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class CognitoAuthService:
@@ -12,7 +18,7 @@ class CognitoAuthService:
         self,
         user_pool_id: str,
         app_client_id: str,
-        region: str = "us-east-1",
+        region: str = "us-east-2",
     ) -> None:
         """
         Initialize Cognito auth service.
@@ -33,15 +39,31 @@ class CognitoAuthService:
         # Cache for JWKS (JSON Web Key Set)
         self._jwks: dict[str, Any] | None = None
 
+        logger.info(
+            "Cognito auth service initialized",
+            extra={
+                "user_pool_id": user_pool_id,
+                "region": region,
+                "issuer": self._issuer,
+            },
+        )
+
     def _get_jwks(self) -> dict[str, Any]:
         """Fetch and cache JSON Web Key Set from Cognito."""
         if self._jwks is None:
             import requests
 
             jwks_url = f"{self._issuer}/.well-known/jwks.json"
-            response = requests.get(jwks_url, timeout=10)
-            response.raise_for_status()
-            self._jwks = response.json()
+            logger.info("Fetching JWKS from Cognito", extra={"jwks_url": jwks_url})
+
+            try:
+                response = requests.get(jwks_url, timeout=10)
+                response.raise_for_status()
+                self._jwks = response.json()
+                logger.info("JWKS fetched successfully", extra={"key_count": len(self._jwks.get("keys", []))})
+            except Exception as e:
+                logger.error("Failed to fetch JWKS", extra={"error": str(e), "jwks_url": jwks_url})
+                raise
 
         return self._jwks
 
@@ -58,13 +80,18 @@ class CognitoAuthService:
         Raises:
             ValueError: If token is invalid or expired
         """
+        logger.debug("Verifying Cognito token")
+
         try:
             # Get the key ID from token headers
             headers = jwt.get_unverified_headers(token)
             kid = headers.get("kid")
 
             if not kid:
+                logger.warning("Token missing key ID")
                 raise ValueError("Token missing key ID")
+
+            logger.debug("Token key ID found", extra={"kid": kid})
 
             # Find the matching key from JWKS
             jwks = self._get_jwks()
@@ -75,6 +102,7 @@ class CognitoAuthService:
                     break
 
             if not key:
+                logger.warning("Public key not found in JWKS", extra={"kid": kid})
                 raise ValueError("Public key not found in JWKS")
 
             # Verify and decode token
@@ -86,9 +114,11 @@ class CognitoAuthService:
                 issuer=self._issuer,
             )
 
+            logger.info("Token verified successfully", extra={"sub": claims.get("sub")})
             return claims
 
         except JWTError as e:
+            logger.error("Token verification failed", extra={"error": str(e)})
             raise ValueError(f"Invalid token: {str(e)}")
 
     async def authenticate_user(self, username: str, password: str) -> dict[str, str]:
@@ -105,6 +135,8 @@ class CognitoAuthService:
         Raises:
             ValueError: If authentication fails
         """
+        logger.info("Attempting user authentication", extra={"username": username})
+
         try:
             response = self._cognito_client.initiate_auth(
                 ClientId=self._app_client_id,
@@ -114,8 +146,10 @@ class CognitoAuthService:
 
             auth_result = response.get("AuthenticationResult")
             if not auth_result:
+                logger.error("Authentication failed - no auth result", extra={"username": username})
                 raise ValueError("Authentication failed")
 
+            logger.info("User authenticated successfully", extra={"username": username})
             return {
                 "access_token": auth_result.get("AccessToken", ""),
                 "id_token": auth_result.get("IdToken", ""),
@@ -123,6 +157,10 @@ class CognitoAuthService:
             }
 
         except Exception as e:
+            logger.error(
+                "Authentication failed",
+                extra={"username": username, "error": str(e)},
+            )
             raise ValueError(f"Authentication failed: {str(e)}")
 
     async def create_user(

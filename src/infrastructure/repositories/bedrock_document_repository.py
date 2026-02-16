@@ -6,6 +6,9 @@ from botocore.config import Config
 
 from src.domain.entities.document import Document, DocumentChunk
 from src.domain.interfaces.document_repository import IDocumentRepository
+from src.infrastructure.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class BedrockDocumentRepository(IDocumentRepository):
@@ -37,6 +40,11 @@ class BedrockDocumentRepository(IDocumentRepository):
             "bedrock-agent-runtime", config=config
         )
 
+        logger.info(
+            "Bedrock document repository initialized",
+            extra={"knowledge_base_id": knowledge_base_id, "region": region},
+        )
+
     async def search_documents(
         self, query: str, max_results: int = 5
     ) -> list[DocumentChunk]:
@@ -53,6 +61,11 @@ class BedrockDocumentRepository(IDocumentRepository):
         Raises:
             RuntimeError: If search operation fails
         """
+        logger.info(
+            "Searching documents in Bedrock KB",
+            extra={"query": query, "max_results": max_results},
+        )
+
         try:
             response = self._bedrock_agent_runtime.retrieve(
                 knowledgeBaseId=self._knowledge_base_id,
@@ -82,9 +95,22 @@ class BedrockDocumentRepository(IDocumentRepository):
                     )
                 )
 
+            logger.info(
+                "Document search completed",
+                extra={
+                    "results_count": len(chunks),
+                    "avg_score": sum(c.relevance_score for c in chunks) / len(chunks) if chunks else 0,
+                },
+            )
+
             return chunks
 
         except Exception as e:
+            logger.error(
+                "Document search failed",
+                extra={"error": str(e), "query": query},
+                exc_info=True,
+            )
             raise RuntimeError(f"Failed to search documents: {str(e)}")
 
     async def get_document_by_id(self, document_id: str) -> Document:

@@ -1,38 +1,19 @@
 variable "aws_region" {
   description = "AWS region for all resources"
   type        = string
-  default     = "us-east-1"
+  default     = "us-east-2"
+}
+
+variable "bedrock_llm_region" {
+  description = "AWS region where the Bedrock LLM is hosted (may differ from aws_region)"
+  type        = string
+  default     = "us-east-2"
 }
 
 variable "environment" {
   description = "Environment name (dev, staging, prod)"
   type        = string
   default     = "dev"
-}
-
-# VPC Variables
-variable "vpc_cidr" {
-  description = "CIDR block for VPC"
-  type        = string
-  default     = "10.0.0.0/16"
-}
-
-variable "availability_zones" {
-  description = "List of availability zones"
-  type        = list(string)
-  default     = ["us-east-1a", "us-east-1b"]
-}
-
-variable "public_subnet_cidrs" {
-  description = "CIDR blocks for public subnets"
-  type        = list(string)
-  default     = ["10.0.1.0/24", "10.0.2.0/24"]
-}
-
-variable "private_subnet_cidrs" {
-  description = "CIDR blocks for private subnets"
-  type        = list(string)
-  default     = ["10.0.11.0/24", "10.0.12.0/24"]
 }
 
 # S3 Variables
@@ -62,19 +43,6 @@ variable "bedrock_knowledge_base_name" {
   default     = "amazon-financial-docs"
 }
 
-# ECS Variables
-variable "container_image" {
-  description = "Docker image for ECS task"
-  type        = string
-  default     = "aws-ai-agent:latest"
-}
-
-variable "container_port" {
-  description = "Port exposed by the container"
-  type        = number
-  default     = 8000
-}
-
 # ECR Variables
 variable "ecr_repository_name" {
   description = "Name of the ECR repository"
@@ -88,4 +56,3 @@ variable "container_image_tag" {
   type        = string
   default     = "latest"
 }
-

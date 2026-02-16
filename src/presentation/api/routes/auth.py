@@ -1,7 +1,7 @@
 """API routes for authentication."""
 from fastapi import APIRouter, Depends, HTTPException
 
-from src.infrastructure.aws.cognito_auth import CognitoAuthService
+from src.di.container import get_cognito_service
 from src.presentation.api.schemas.request import AuthRequest
 from src.presentation.api.schemas.response import AuthResponse, ErrorResponse
 
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
 )
 async def login(
     request: AuthRequest,
-    cognito_service: CognitoAuthService = Depends(),
+    cognito_service=Depends(get_cognito_service),
 ) -> AuthResponse:
     """
     Authenticate a user with username and password.

@@ -6,6 +6,9 @@ import boto3
 from botocore.config import Config
 
 from src.domain.interfaces.llm_service import ILLMService
+from src.infrastructure.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class BedrockLLMService(ILLMService):
@@ -13,7 +16,7 @@ class BedrockLLMService(ILLMService):
 
     def __init__(
         self,
-        model_id: str = "anthropic.claude-3-sonnet-20240229-v1:0",
+        model_id: str = "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
         region: str = "us-east-1",
         boto_config: Config | None = None,
     ) -> None:
@@ -35,6 +38,11 @@ class BedrockLLMService(ILLMService):
         )
 
         self._bedrock_runtime = boto3.client("bedrock-runtime", config=config)
+
+        logger.info(
+            "Bedrock LLM service initialized",
+            extra={"model_id": model_id, "region": region},
+        )
 
     async def generate(
         self,
@@ -58,6 +66,11 @@ class BedrockLLMService(ILLMService):
         Raises:
             RuntimeError: If generation fails
         """
+        logger.info(
+            "Invoking Bedrock model",
+            extra={"model_id": self._model_id, "max_tokens": max_tokens},
+        )
+
         try:
             # Construct messages for Claude 3
             messages = [{"role": "user", "content": prompt}]
@@ -81,11 +94,23 @@ class BedrockLLMService(ILLMService):
             content = response_body.get("content", [])
 
             if not content:
+                logger.error("No content in Bedrock response")
                 raise RuntimeError("No content in LLM response")
 
-            return content[0].get("text", "")
+            text = content[0].get("text", "")
+            logger.info(
+                "Bedrock model invocation successful",
+                extra={"response_length": len(text)},
+            )
+
+            return text
 
         except Exception as e:
+            logger.error(
+                "Bedrock model invocation failed",
+                extra={"error": str(e), "model_id": self._model_id},
+                exc_info=True,
+            )
             raise RuntimeError(f"Failed to generate LLM response: {str(e)}")
 
     async def generate_stream(

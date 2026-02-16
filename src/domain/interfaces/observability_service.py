@@ -8,6 +8,32 @@ class IObservabilityService(ABC):
     """Interface for observability and tracing services."""
 
     @abstractmethod
+    def get_langchain_callback(
+        self,
+        user_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> Any:
+        """
+        Get a LangChain-compatible callback handler for automatic tracing.
+
+        This is the primary integration point for LangChain/LangGraph observability.
+        Pass the returned handler via config={"callbacks": [handler]} when invoking
+        chains or graphs.
+
+        Args:
+            user_id: Optional user identifier for the trace
+            session_id: Optional session identifier
+            tags: Optional list of tags for filtering
+            metadata: Optional metadata dict
+
+        Returns:
+            A LangChain BaseCallbackHandler instance
+        """
+        pass
+
+    @abstractmethod
     def create_trace(
         self, name: str, user_id: Optional[str] = None, metadata: Optional[dict[str, Any]] = None
     ) -> str:

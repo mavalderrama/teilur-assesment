@@ -39,6 +39,12 @@ variable "bedrock_knowledge_base_id" {
   type        = string
 }
 
+variable "bedrock_llm_region" {
+  description = "Region for Bedrock LLM runtime"
+  type        = string
+  default     = "us-east-2"
+}
+
 variable "langfuse_public_key_ssm_name" {
   description = "Name of the SSM parameter containing the Langfuse public key"
   type        = string

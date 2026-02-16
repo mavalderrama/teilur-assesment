@@ -10,6 +10,10 @@ terraform {
       source  = "hashicorp/time"
       version = "~> 0.11"
     }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.2"
+    }
   }
 
   # Uncomment for remote state management
@@ -44,17 +48,6 @@ provider "aws" {
   }
 }
 
-# VPC Module
-module "vpc" {
-  source = "./modules/vpc"
-
-  environment          = var.environment
-  vpc_cidr             = var.vpc_cidr
-  availability_zones   = var.availability_zones
-  public_subnet_cidrs  = var.public_subnet_cidrs
-  private_subnet_cidrs = var.private_subnet_cidrs
-}
-
 # S3 Module for Document Storage
 module "s3" {
   source = "./modules/s3"
@@ -84,8 +77,9 @@ module "ecr" {
 module "iam" {
   source = "./modules/iam"
 
-  environment   = var.environment
-  s3_bucket_arn = module.s3.bucket_arn
+  environment                = var.environment
+  s3_bucket_arn              = module.s3.bucket_arn
+  supplemental_s3_bucket_arn = "arn:aws:s3:::${var.environment}-kb-supplemental-data"
 }
 
 # Bedrock Module (Knowledge Base)
@@ -96,28 +90,6 @@ module "bedrock" {
   knowledge_base_name        = var.bedrock_knowledge_base_name
   s3_bucket_arn              = module.s3.bucket_arn
   bedrock_execution_role_arn = module.iam.bedrock_execution_role_arn
-}
-
-# ECS Module for FastAPI Application
-module "ecs" {
-  source = "./modules/ecs"
-
-  environment                 = var.environment
-  vpc_id                      = module.vpc.vpc_id
-  private_subnet_ids          = module.vpc.private_subnet_ids
-  public_subnet_ids           = module.vpc.public_subnet_ids
-  ecs_task_execution_role_arn = module.iam.ecs_task_execution_role_arn
-  ecs_task_role_arn           = module.iam.ecs_task_role_arn
-  container_image             = var.container_image
-  container_port              = var.container_port
-
-  # Environment variables for the container
-  cognito_user_pool_id        = module.cognito.user_pool_id
-  cognito_app_client_id       = module.cognito.app_client_id
-  s3_documents_bucket         = module.s3.bucket_name
-  bedrock_knowledge_base_id   = module.bedrock.knowledge_base_id
-  langfuse_public_key_ssm_arn = local.langfuse_public_key_ssm_arn
-  langfuse_secret_key_ssm_arn = local.langfuse_secret_key_ssm_arn
 }
 
 # AgentCore Module (Bedrock AgentCore Runtime)
@@ -132,6 +104,7 @@ module "agentcore" {
   cognito_app_client_id        = module.cognito.app_client_id
   s3_documents_bucket          = module.s3.bucket_name
   bedrock_knowledge_base_id    = module.bedrock.knowledge_base_id
+  bedrock_llm_region           = var.bedrock_llm_region
   langfuse_public_key_ssm_name = local.langfuse_public_key_ssm_name
   langfuse_secret_key_ssm_name = local.langfuse_secret_key_ssm_name
 }

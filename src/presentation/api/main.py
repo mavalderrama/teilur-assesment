@@ -1,5 +1,7 @@
 """FastAPI application entry point."""
 import os
+import time
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -8,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from src.di.container import DIContainer
+from src.infrastructure.logging import get_logger
 from src.presentation.api.routes import agent, auth
 from src.presentation.api.schemas.response import ErrorResponse, HealthResponse
 
@@ -16,21 +19,38 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+logger = get_logger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     # Startup
-    print("🚀 Starting AWS AI Agent API...")
+    environment = os.getenv("ENVIRONMENT", "production")
+    aws_region = os.getenv("AWS_REGION", "us-east-1")
 
-    # Initialize DI container
-    container = DIContainer()
-    app.state.container = container
+    logger.info(
+        "Starting AWS AI Agent API",
+        extra={
+            "environment": environment,
+            "aws_region": aws_region,
+            "python_version": os.sys.version,
+        },
+    )
+
+    try:
+        # Initialize DI container
+        container = DIContainer()
+        app.state.container = container
+        logger.info("Application startup completed successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize application: {str(e)}", exc_info=True)
+        raise
 
     yield
 
     # Shutdown
-    print("👋 Shutting down AWS AI Agent API...")
+    logger.info("Shutting down AWS AI Agent API")
 
 
 # Create FastAPI application
@@ -57,6 +77,17 @@ app.add_middleware(
 @app.exception_handler(ValueError)
 async def value_error_handler(request: Request, exc: ValueError):
     """Handle ValueError exceptions."""
+    correlation_id = getattr(request.state, "correlation_id", None)
+    logger.error(
+        "Validation error occurred",
+        extra={
+            "error": str(exc),
+            "path": request.url.path,
+            "method": request.method,
+            "correlation_id": correlation_id,
+        },
+    )
+
     return JSONResponse(
         status_code=400,
         content=ErrorResponse(
@@ -70,11 +101,49 @@ async def value_error_handler(request: Request, exc: ValueError):
 @app.exception_handler(RuntimeError)
 async def runtime_error_handler(request: Request, exc: RuntimeError):
     """Handle RuntimeError exceptions."""
+    correlation_id = getattr(request.state, "correlation_id", None)
+    logger.error(
+        "Runtime error occurred",
+        extra={
+            "error": str(exc),
+            "path": request.url.path,
+            "method": request.method,
+            "correlation_id": correlation_id,
+        },
+        exc_info=True,
+    )
+
     return JSONResponse(
         status_code=500,
         content=ErrorResponse(
             error="Internal Server Error",
             detail=str(exc),
+            timestamp=datetime.now(),
+        ).model_dump(mode="json"),
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Handle unexpected exceptions."""
+    correlation_id = getattr(request.state, "correlation_id", None)
+    logger.error(
+        "Unexpected error occurred",
+        extra={
+            "error": str(exc),
+            "error_type": type(exc).__name__,
+            "path": request.url.path,
+            "method": request.method,
+            "correlation_id": correlation_id,
+        },
+        exc_info=True,
+    )
+
+    return JSONResponse(
+        status_code=500,
+        content=ErrorResponse(
+            error="Internal Server Error",
+            detail="An unexpected error occurred",
             timestamp=datetime.now(),
         ).model_dump(mode="json"),
     )
@@ -99,6 +168,46 @@ async def health_check() -> HealthResponse:
     )
 
 
+# AgentCore health check endpoint (required by AgentCore - probes /ping)
+@app.get("/ping", tags=["health"])
+async def ping():
+    """AgentCore health check endpoint."""
+    return {"status": "healthy"}
+
+
+# AgentCore invocation endpoint (required by AgentCore - sends to /invocations)
+@app.post("/invocations", tags=["agentcore"])
+async def invocations(request: Request):
+    """
+    AgentCore invocation endpoint.
+
+    Accepts {"input": {"prompt": "..."}} and delegates to the agent orchestrator.
+    """
+    from src.di.container import get_container
+
+    body = await request.json()
+    # Support both {"input": {"prompt": "..."}} and {"query": "..."}
+    prompt = body.get("query") or body.get("input", {}).get("prompt", "")
+    if not prompt:
+        return JSONResponse(status_code=400, content={"error": "No prompt provided"})
+
+    try:
+        container = get_container()
+        orchestrator = container.agent_orchestrator
+        result = await orchestrator.process_query(prompt, user_id="agentcore-user")
+        return {
+            "output": {
+                "message": result.answer,
+                "sources": result.sources,
+                "trace_id": result.trace_id,
+                "timestamp": datetime.now().isoformat(),
+            }
+        }
+    except Exception as e:
+        logger.error(f"Invocation failed: {str(e)}", exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 # Root endpoint
 @app.get("/", tags=["root"])
 async def root():
@@ -115,6 +224,66 @@ async def root():
 # Include routers
 app.include_router(auth.router)
 app.include_router(agent.router)
+
+
+# Request logging middleware
+@app.middleware("http")
+async def logging_middleware(request: Request, call_next):
+    """Log all HTTP requests and responses with timing."""
+    # Generate correlation ID
+    correlation_id = str(uuid.uuid4())
+    request.state.correlation_id = correlation_id
+
+    # Log incoming request
+    logger.info(
+        "Incoming request",
+        extra={
+            "method": request.method,
+            "path": request.url.path,
+            "query_params": str(request.query_params),
+            "client_host": request.client.host if request.client else None,
+            "correlation_id": correlation_id,
+        },
+    )
+
+    # Process request and measure time
+    start_time = time.time()
+    try:
+        response = await call_next(request)
+        process_time = (time.time() - start_time) * 1000  # Convert to ms
+
+        # Log response
+        logger.info(
+            "Request completed",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "process_time_ms": round(process_time, 2),
+                "correlation_id": correlation_id,
+            },
+        )
+
+        # Add correlation ID to response headers
+        response.headers["X-Correlation-ID"] = correlation_id
+        response.headers["X-Process-Time"] = str(round(process_time, 2))
+
+        return response
+
+    except Exception as e:
+        process_time = (time.time() - start_time) * 1000
+        logger.error(
+            "Request failed",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "error": str(e),
+                "process_time_ms": round(process_time, 2),
+                "correlation_id": correlation_id,
+            },
+            exc_info=True,
+        )
+        raise
 
 
 # Middleware to inject dependencies

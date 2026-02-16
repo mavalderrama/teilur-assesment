@@ -42,6 +42,22 @@ resource "aws_iam_role_policy" "bedrock_s3_access" {
           var.s3_bucket_arn,
           "${var.s3_bucket_arn}/*",
         ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:ListBucket",
+          "s3:GetBucketLocation",
+          "s3:AbortMultipartUpload",
+          "s3:ListBucketMultipartUploads",
+        ]
+        Resource = [
+          var.supplemental_s3_bucket_arn,
+          "${var.supplemental_s3_bucket_arn}/*",
+        ]
       }
     ]
   })
@@ -59,7 +75,7 @@ resource "aws_iam_role_policy" "bedrock_invoke_model" {
         Action = [
           "bedrock:InvokeModel",
         ]
-        Resource = "arn:aws:bedrock:${data.aws_region.current.id}::foundation-model/amazon.titan-embed-text-v1"
+        Resource = "arn:aws:bedrock:${data.aws_region.current.id}::foundation-model/amazon.titan-embed-text-v2:0"
       }
     ]
   })
@@ -76,160 +92,6 @@ resource "aws_iam_role_policy" "bedrock_aoss_access" {
         Effect   = "Allow"
         Action   = "aoss:APIAccessAll"
         Resource = "arn:aws:aoss:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:collection/*"
-      }
-    ]
-  })
-}
-
-# ------------------------------------------------------------------------------
-# ECS Task Execution Role
-# ------------------------------------------------------------------------------
-resource "aws_iam_role" "ecs_task_execution" {
-  name = "${var.environment}-ecs-task-execution-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Principal = {
-          Service = "ecs-tasks.amazonaws.com"
-        }
-        Action = "sts:AssumeRole"
-      }
-    ]
-  })
-
-  tags = {
-    Name = "${var.environment}-ecs-task-execution-role"
-  }
-}
-
-resource "aws_iam_role_policy_attachment" "ecs_task_execution" {
-  role       = aws_iam_role.ecs_task_execution.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-}
-
-resource "aws_iam_role_policy" "ecs_task_execution_ssm" {
-  name = "${var.environment}-ecs-execution-ssm"
-  role = aws_iam_role.ecs_task_execution.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "ssm:GetParameters",
-          "ssm:GetParameter",
-        ]
-        Resource = "arn:aws:ssm:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:parameter/${var.environment}/ai-agent/*"
-      }
-    ]
-  })
-}
-
-# ------------------------------------------------------------------------------
-# ECS Task Role (application permissions)
-# ------------------------------------------------------------------------------
-resource "aws_iam_role" "ecs_task" {
-  name = "${var.environment}-ecs-task-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Principal = {
-          Service = "ecs-tasks.amazonaws.com"
-        }
-        Action = "sts:AssumeRole"
-      }
-    ]
-  })
-
-  tags = {
-    Name = "${var.environment}-ecs-task-role"
-  }
-}
-
-resource "aws_iam_role_policy" "ecs_task_bedrock" {
-  name = "${var.environment}-ecs-task-bedrock"
-  role = aws_iam_role.ecs_task.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "bedrock:InvokeModel",
-          "bedrock:InvokeModelWithResponseStream",
-          "bedrock:Retrieve",
-          "bedrock:RetrieveAndGenerate",
-        ]
-        Resource = "*"
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy" "ecs_task_s3" {
-  name = "${var.environment}-ecs-task-s3"
-  role = aws_iam_role.ecs_task.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:ListBucket",
-        ]
-        Resource = [
-          var.s3_bucket_arn,
-          "${var.s3_bucket_arn}/*",
-        ]
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy" "ecs_task_cognito" {
-  name = "${var.environment}-ecs-task-cognito"
-  role = aws_iam_role.ecs_task.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "cognito-idp:AdminGetUser",
-          "cognito-idp:AdminInitiateAuth",
-          "cognito-idp:AdminRespondToAuthChallenge",
-        ]
-        Resource = "arn:aws:cognito-idp:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:userpool/*"
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy" "ecs_task_logs" {
-  name = "${var.environment}-ecs-task-logs"
-  role = aws_iam_role.ecs_task.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogStream",
-          "logs:PutLogEvents",
-        ]
-        Resource = "arn:aws:logs:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:log-group:*"
       }
     ]
   })
@@ -259,9 +121,27 @@ resource "aws_iam_role" "agentcore_execution" {
   }
 }
 
-resource "aws_iam_role_policy_attachment" "agentcore_full_access" {
-  role       = aws_iam_role.agentcore_execution.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonBedrockAgentCoreFullAccess"
+resource "aws_iam_role_policy" "agentcore_runtime" {
+  name = "${var.environment}-agentcore-runtime"
+  role = aws_iam_role.agentcore_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "bedrock:CreateAgentRuntime",
+          "bedrock:UpdateAgentRuntime",
+          "bedrock:DeleteAgentRuntime",
+          "bedrock:GetAgentRuntime",
+          "bedrock:ListAgentRuntimes",
+          "bedrock:InvokeAgentRuntime",
+        ]
+        Resource = "*"
+      }
+    ]
+  })
 }
 
 resource "aws_iam_role_policy" "agentcore_ecr" {
@@ -297,10 +177,55 @@ resource "aws_iam_role_policy" "agentcore_bedrock" {
         Action = [
           "bedrock:InvokeModel",
           "bedrock:InvokeModelWithResponseStream",
+          "bedrock:Converse",
+          "bedrock:ConverseStream",
           "bedrock:Retrieve",
           "bedrock:RetrieveAndGenerate",
+          "bedrock:GetFoundationModelAvailability",
         ]
         Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "agentcore_s3" {
+  name = "${var.environment}-agentcore-s3"
+  role = aws_iam_role.agentcore_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:ListBucket",
+        ]
+        Resource = [
+          var.s3_bucket_arn,
+          "${var.s3_bucket_arn}/*",
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "agentcore_cognito" {
+  name = "${var.environment}-agentcore-cognito"
+  role = aws_iam_role.agentcore_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "cognito-idp:AdminGetUser",
+          "cognito-idp:AdminInitiateAuth",
+          "cognito-idp:AdminRespondToAuthChallenge",
+        ]
+        Resource = "arn:aws:cognito-idp:${data.aws_region.current.id}:${data.aws_caller_identity.current.account_id}:userpool/*"
       }
     ]
   })

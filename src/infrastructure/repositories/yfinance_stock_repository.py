@@ -8,6 +8,9 @@ import yfinance as yf
 
 from src.domain.entities.stock_price import HistoricalStockPrice, StockPrice
 from src.domain.interfaces.stock_repository import IStockRepository
+from src.infrastructure.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class YFinanceStockRepository(IStockRepository):
@@ -15,7 +18,7 @@ class YFinanceStockRepository(IStockRepository):
 
     def __init__(self) -> None:
         """Initialize repository."""
-        pass
+        logger.info("YFinance stock repository initialized")
 
     async def get_realtime_price(self, symbol: str) -> StockPrice:
         """
@@ -31,6 +34,8 @@ class YFinanceStockRepository(IStockRepository):
             ValueError: If symbol is invalid
             RuntimeError: If price data cannot be retrieved
         """
+        logger.info("Fetching realtime stock price", extra={"symbol": symbol})
+
         try:
             # Run blocking yfinance call in thread pool
             ticker = await asyncio.to_thread(yf.Ticker, symbol)
@@ -38,12 +43,19 @@ class YFinanceStockRepository(IStockRepository):
 
             # Validate data was retrieved
             if not info or "currentPrice" not in info:
+                logger.error("No price data available", extra={"symbol": symbol})
                 raise RuntimeError(f"Could not retrieve price data for symbol: {symbol}")
 
             # Extract price data
             current_price = info.get("currentPrice") or info.get("regularMarketPrice")
             if current_price is None:
+                logger.error("Price field not found", extra={"symbol": symbol})
                 raise RuntimeError(f"No price available for symbol: {symbol}")
+
+            logger.info(
+                "Realtime price fetched successfully",
+                extra={"symbol": symbol, "price": float(current_price)},
+            )
 
             return StockPrice(
                 symbol=symbol,
@@ -63,6 +75,11 @@ class YFinanceStockRepository(IStockRepository):
         except Exception as e:
             if isinstance(e, (ValueError, RuntimeError)):
                 raise
+            logger.error(
+                "Failed to fetch realtime price",
+                extra={"symbol": symbol, "error": str(e)},
+                exc_info=True,
+            )
             raise RuntimeError(f"Failed to retrieve realtime price for {symbol}: {str(e)}")
 
     async def get_historical_prices(
@@ -88,6 +105,16 @@ class YFinanceStockRepository(IStockRepository):
             ValueError: If symbol or date range is invalid
             RuntimeError: If historical data cannot be retrieved
         """
+        logger.info(
+            "Fetching historical stock prices",
+            extra={
+                "symbol": symbol,
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "period": period,
+            },
+        )
+
         try:
             # Run blocking yfinance call in thread pool
             ticker = await asyncio.to_thread(yf.Ticker, symbol)
@@ -102,6 +129,10 @@ class YFinanceStockRepository(IStockRepository):
             )
 
             if hist.empty:
+                logger.error(
+                    "No historical data available",
+                    extra={"symbol": symbol, "start_date": start_date, "end_date": end_date},
+                )
                 raise RuntimeError(
                     f"No historical data available for {symbol} "
                     f"between {start_date} and {end_date}"
@@ -124,6 +155,11 @@ class YFinanceStockRepository(IStockRepository):
                     )
                 )
 
+            logger.info(
+                "Historical prices fetched successfully",
+                extra={"symbol": symbol, "data_points": len(prices)},
+            )
+
             return HistoricalStockPrice(
                 symbol=symbol,
                 start_date=start_date,
@@ -135,6 +171,11 @@ class YFinanceStockRepository(IStockRepository):
         except Exception as e:
             if isinstance(e, (ValueError, RuntimeError)):
                 raise
+            logger.error(
+                "Failed to fetch historical prices",
+                extra={"symbol": symbol, "error": str(e)},
+                exc_info=True,
+            )
             raise RuntimeError(
                 f"Failed to retrieve historical prices for {symbol}: {str(e)}"
             )

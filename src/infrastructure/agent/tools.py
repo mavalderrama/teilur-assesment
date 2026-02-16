@@ -43,7 +43,7 @@ class AgentTools:
         """
 
         @tool
-        async def get_realtime_stock_price(symbol: str) -> str:
+        async def retrieve_realtime_stock_price(symbol: str) -> str:
             """
             Get the current realtime stock price for a given ticker symbol.
 
@@ -55,21 +55,39 @@ class AgentTools:
             """
             try:
                 price = await self._get_realtime_price_uc.execute(symbol)
+
+                day_high = (
+                    f"${price.day_high:.2f}" if price.day_high is not None else "N/A"
+                )
+                day_low = (
+                    f"${price.day_low:.2f}" if price.day_low is not None else "N/A"
+                )
+                open_price = (
+                    f"${price.open_price:.2f}"
+                    if price.open_price is not None
+                    else "N/A"
+                )
+                volume = f"{price.volume:,}" if price.volume is not None else "N/A"
+                market_cap = (
+                    f"${price.market_cap:,.0f}"
+                    if price.market_cap is not None
+                    else "N/A"
+                )
                 return (
                     f"Stock: {price.symbol}\n"
                     f"Current Price: ${price.price:.2f} {price.currency}\n"
                     f"Timestamp: {price.timestamp.isoformat()}\n"
-                    f"Day High: ${price.day_high:.2f if price.day_high else 'N/A'}\n"
-                    f"Day Low: ${price.day_low:.2f if price.day_low else 'N/A'}\n"
-                    f"Open: ${price.open_price:.2f if price.open_price else 'N/A'}\n"
-                    f"Volume: {price.volume:,} if price.volume else 'N/A'}\n"
-                    f"Market Cap: ${price.market_cap:,.0f if price.market_cap else 'N/A'}"
+                    f"Day High: {day_high}\n"
+                    f"Day Low: {day_low}\n"
+                    f"Open: {open_price}\n"
+                    f"Volume: {volume}\n"
+                    f"Market Cap: {market_cap}"
                 )
             except Exception as e:
                 return f"Error retrieving stock price for {symbol}: {str(e)}"
 
         @tool
-        async def get_historical_stock_prices(
+        async def retrieve_historical_stock_price(
             symbol: str, start_date: str, end_date: str, period: str = "1d"
         ) -> str:
             """
@@ -152,7 +170,7 @@ class AgentTools:
                 return f"Error searching financial documents: {str(e)}"
 
         return [
-            get_realtime_stock_price,
-            get_historical_stock_prices,
+            retrieve_realtime_stock_price,
+            retrieve_historical_stock_price,
             search_financial_documents,
         ]

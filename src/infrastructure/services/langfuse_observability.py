@@ -1,15 +1,25 @@
-"""Langfuse observability service."""
+"""Langfuse observability service using v3 SDK."""
+import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from langfuse import Langfuse
-from langfuse.decorators import langfuse_context, observe
+from langfuse import Langfuse, get_client, propagate_attributes
+from langfuse.langchain import CallbackHandler
 
 from src.domain.interfaces.observability_service import IObservabilityService
+from src.infrastructure.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class LangfuseObservabilityService(IObservabilityService):
-    """Service for Langfuse observability and tracing."""
+    """Service for Langfuse observability and tracing (v3 SDK).
+
+    In v3, Langfuse uses a singleton client pattern:
+    1. Initialize Langfuse(public_key=..., secret_key=...) once at startup
+    2. CallbackHandler() uses the singleton - no credential args needed
+    3. Trace metadata (user_id, tags) is passed via config["metadata"] with langfuse_ prefix
+    """
 
     def __init__(
         self,
@@ -17,36 +27,73 @@ class LangfuseObservabilityService(IObservabilityService):
         secret_key: str,
         host: str = "https://cloud.langfuse.com",
     ) -> None:
-        """
-        Initialize Langfuse observability service.
-
-        Args:
-            public_key: Langfuse public API key
-            secret_key: Langfuse secret API key
-            host: Langfuse host URL
-        """
+        # Initialize the singleton Langfuse client (v3 pattern)
         self._langfuse = Langfuse(
-            public_key=public_key, secret_key=secret_key, host=host
+            public_key=public_key,
+            secret_key=secret_key,
+            host=host,
         )
+
+        logger.info(
+            "Langfuse observability service initialized (v3 SDK)",
+            extra={"host": host},
+        )
+
+    def get_langchain_callback(
+        self,
+        user_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> Any:
+        """
+        Get a Langfuse CallbackHandler for automatic LangChain/LangGraph tracing.
+
+        In v3, CallbackHandler() takes no credential args - it uses the singleton
+        client initialized in __init__. Trace attributes (user_id, session_id, tags)
+        should be passed via config["metadata"] with langfuse_ prefix when invoking
+        the chain/graph. See _build_invoke_config in the orchestrator.
+        """
+        try:
+            return CallbackHandler()
+        except Exception as e:
+            logger.warning(
+                "Failed to create Langfuse CallbackHandler, tracing disabled for this request",
+                extra={"error": str(e)},
+            )
+            return None
+
+    @staticmethod
+    def build_langfuse_metadata(
+        user_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+    ) -> dict[str, Any]:
+        """Build metadata dict with langfuse_ prefixed keys for config["metadata"]."""
+        meta: dict[str, Any] = {}
+        if user_id:
+            meta["langfuse_user_id"] = user_id
+        if session_id:
+            meta["langfuse_session_id"] = session_id
+        if tags:
+            meta["langfuse_tags"] = tags
+        return meta
 
     def create_trace(
         self, name: str, user_id: Optional[str] = None, metadata: Optional[dict[str, Any]] = None
     ) -> str:
-        """
-        Create a new trace in Langfuse.
+        trace_id = str(uuid.uuid4())
 
-        Args:
-            name: Trace name
-            user_id: Optional user identifier
-            metadata: Optional trace metadata
+        with self._langfuse.start_as_current_span(
+            name=name,
+            input={"user_id": user_id},
+            metadata=metadata or {},
+        ) as span:
+            if user_id:
+                with propagate_attributes(user_id=user_id):
+                    pass
 
-        Returns:
-            Trace ID
-        """
-        trace = self._langfuse.trace(
-            name=name, user_id=user_id, metadata=metadata or {}
-        )
-        return str(trace.id) if hasattr(trace, 'id') else ""
+        return trace_id
 
     def log_llm_generation(
         self,
@@ -57,25 +104,16 @@ class LangfuseObservabilityService(IObservabilityService):
         output_data: Any,
         metadata: Optional[dict[str, Any]] = None,
     ) -> None:
-        """
-        Log an LLM generation to Langfuse.
-
-        Args:
-            trace_id: Parent trace ID
-            name: Generation name
-            model: Model identifier
-            input_data: Input to the model
-            output_data: Output from the model
-            metadata: Optional generation metadata
-        """
-        self._langfuse.generation(
-            trace_id=trace_id,
+        with self._langfuse.start_as_current_observation(
             name=name,
+            as_type="generation",
             model=model,
-            input=input_data,
-            output=output_data,
-            metadata=metadata or {},
-        )
+        ) as generation:
+            generation.update(
+                input=input_data,
+                output=output_data,
+                metadata=metadata or {},
+            )
 
     def log_tool_execution(
         self,
@@ -86,31 +124,16 @@ class LangfuseObservabilityService(IObservabilityService):
         error: Optional[str] = None,
         metadata: Optional[dict[str, Any]] = None,
     ) -> None:
-        """
-        Log a tool execution to Langfuse.
-
-        Args:
-            trace_id: Parent trace ID
-            tool_name: Name of the tool
-            tool_input: Tool input parameters
-            tool_output: Tool output/result
-            error: Optional error message
-            metadata: Optional metadata
-        """
         event_metadata = metadata or {}
-        event_metadata.update({
-            "tool_name": tool_name,
-            "tool_input": tool_input,
-            "tool_output": tool_output,
-        })
         if error:
             event_metadata["error"] = error
 
-        self._langfuse.event(
-            trace_id=trace_id,
+        with self._langfuse.start_as_current_span(
             name=f"tool_{tool_name}",
+            input=tool_input,
             metadata=event_metadata,
-        )
+        ) as span:
+            span.update(output=tool_output)
 
     def log_span(
         self,
@@ -120,23 +143,11 @@ class LangfuseObservabilityService(IObservabilityService):
         end_time: datetime,
         metadata: Optional[dict[str, Any]] = None,
     ) -> None:
-        """
-        Log a span (time-bounded operation) to Langfuse.
-
-        Args:
-            trace_id: Parent trace ID
-            name: Span name
-            start_time: Span start time
-            end_time: Span end time
-            metadata: Optional span metadata
-        """
-        self._langfuse.span(
-            trace_id=trace_id,
+        with self._langfuse.start_as_current_span(
             name=name,
-            start_time=start_time,
-            end_time=end_time,
             metadata=metadata or {},
-        )
+        ) as span:
+            span.update(output={"duration_ms": (end_time - start_time).total_seconds() * 1000})
 
     def complete_trace(
         self,
@@ -144,64 +155,24 @@ class LangfuseObservabilityService(IObservabilityService):
         outputs: Optional[dict[str, Any]] = None,
         error: Optional[str] = None,
     ) -> None:
-        """
-        Complete a trace with final outputs or error.
+        completion_metadata = {}
+        if outputs:
+            completion_metadata["outputs"] = outputs
+        if error:
+            completion_metadata["error"] = error
 
-        Args:
-            trace_id: Trace ID to complete
-            outputs: Optional output data
-            error: Optional error message
-        """
-        # Langfuse traces are auto-completed, but we can log final event
-        if outputs or error:
-            event_metadata = {}
-            if outputs:
-                event_metadata["outputs"] = outputs
-            if error:
-                event_metadata["error"] = error
-
-            self._langfuse.event(
-                trace_id=trace_id,
+        if completion_metadata:
+            with self._langfuse.start_as_current_span(
                 name="trace_complete",
-                metadata=event_metadata,
-            )
+                metadata=completion_metadata,
+            ) as span:
+                span.update(output=completion_metadata)
 
     def get_trace_url(self, trace_id: str) -> Optional[str]:
-        """
-        Get the URL for viewing a trace.
-
-        Args:
-            trace_id: Trace ID
-
-        Returns:
-            URL to view the trace, or None if not available
-        """
-        # Use the static method from langfuse_context
-        return langfuse_context.get_current_trace_url()
+        try:
+            return self._langfuse.get_trace_url(trace_id=trace_id)
+        except Exception:
+            return None
 
     def flush(self) -> None:
-        """Flush pending traces to Langfuse."""
         self._langfuse.flush()
-
-    @staticmethod
-    def observe_function(name: str | None = None) -> Any:
-        """
-        Decorator to automatically trace a function with Langfuse.
-
-        Args:
-            name: Optional custom name for the observation
-
-        Returns:
-            Decorator function
-        """
-        return observe(name=name)
-
-    @staticmethod
-    def get_trace_url() -> str | None:
-        """
-        Get the URL for the current trace.
-
-        Returns:
-            Trace URL if available, None otherwise
-        """
-        return langfuse_context.get_current_trace_url()

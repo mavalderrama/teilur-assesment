@@ -4,7 +4,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
-from src.application.interfaces.agent_orchestrator import IAgentOrchestrator
+from src.di.container import get_agent_orchestrator
 from src.presentation.api.middleware.auth_middleware import get_user_id
 from src.presentation.api.schemas.request import QueryRequest
 from src.presentation.api.schemas.response import (
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/agent", tags=["agent"])
 
 @router.post(
     "/query",
-    response_model=QueryResponse | StreamingResponse,
+    response_model=None,
     responses={
         200: {"description": "Successful query response"},
         400: {"model": ErrorResponse, "description": "Invalid request"},
@@ -30,7 +30,7 @@ router = APIRouter(prefix="/agent", tags=["agent"])
 async def query_agent(
     request: QueryRequest,
     user_id: str = Depends(get_user_id),
-    orchestrator: IAgentOrchestrator = Depends(),
+    orchestrator = Depends(get_agent_orchestrator),
 ) -> QueryResponse | StreamingResponse:
     """
     Query the AI agent with a natural language question.

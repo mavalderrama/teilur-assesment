@@ -9,20 +9,9 @@ resource "aws_cognito_user_pool" "main" {
     require_uppercase = true
   }
 
-  schema {
-    name                = "email"
-    attribute_data_type = "String"
-    required            = true
-    mutable             = true
-
-    string_attribute_constraints {
-      min_length = 1
-      max_length = 256
-    }
+  username_configuration {
+    case_sensitive = false
   }
-
-  auto_verified_attributes = ["email"]
-  username_attributes      = ["email"]
 
   tags = {
     Name = "${var.environment}-user-pool"

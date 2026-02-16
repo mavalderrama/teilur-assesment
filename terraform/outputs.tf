@@ -1,8 +1,3 @@
-output "vpc_id" {
-  description = "ID of the VPC"
-  value       = module.vpc.vpc_id
-}
-
 output "cognito_user_pool_id" {
   description = "ID of the Cognito user pool"
   value       = module.cognito.user_pool_id
@@ -38,24 +33,9 @@ output "bedrock_knowledge_base_arn" {
   value       = module.bedrock.knowledge_base_arn
 }
 
-output "ecs_cluster_name" {
-  description = "Name of the ECS cluster"
-  value       = module.ecs.cluster_name
-}
-
-output "ecs_service_name" {
-  description = "Name of the ECS service"
-  value       = module.ecs.service_name
-}
-
-output "alb_dns_name" {
-  description = "DNS name of the Application Load Balancer"
-  value       = module.ecs.alb_dns_name
-}
-
-output "api_endpoint" {
-  description = "API endpoint URL"
-  value       = "https://${module.ecs.alb_dns_name}"
+output "bedrock_data_source_id" {
+  description = "ID of the Bedrock KB S3 data source"
+  value       = module.bedrock.data_source_id
 }
 
 output "ecr_repository_url" {
