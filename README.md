@@ -72,63 +72,6 @@ This project implements an **AI Agent** on AWS that:
 
 ---
 
-## Quick Start (Local Testing - 3 Steps)
-
-### 1. Install
-
-```bash
-# Clone repository
-git clone <repo-url>
-cd assesment
-
-# Create virtual environment
-python3.11 -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### 2. Configure
-
-```bash
-# Copy environment template
-cp .env.example .env
-```
-
-Edit `.env` with **minimum configuration**:
-```bash
-# AWS credentials (REQUIRED)
-AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=your_aws_access_key
-AWS_SECRET_ACCESS_KEY=your_aws_secret_key
-
-# For local testing (bypass Cognito)
-ENVIRONMENT=development
-
-# Optional: disable observability for quick testing
-OBSERVABILITY_PROVIDER=none
-```
-
-### 3. Run & Test
-
-```bash
-# Start server
-uvicorn src.presentation.api.main:app --reload
-
-# In another terminal - test it!
-curl -X POST http://localhost:8000/agent/query \
-  -H "Authorization: Bearer test" \
-  -H "Content-Type: application/json" \
-  -d '{"query": "What is AMZN stock price?", "stream": false}'
-```
-
-**✅ That's it! The agent will fetch realtime stock prices using yfinance (no API key needed).**
-
-📖 **For detailed testing guide, see:** [docs/LOCAL_TESTING_GUIDE.md](docs/LOCAL_TESTING_GUIDE.md)
-
----
-
 ## 🚀 Deployment to AWS
 
 ### Prerequisites
@@ -143,10 +86,14 @@ curl -X POST http://localhost:8000/agent/query \
 ### Step 1: Build & Push Docker Image
 
 ```bash
+# Creates ECR repo for AgentCore deployment
+cd terraform
+terraform apply -target=module.ecr
+
 # Login to ECR
 aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin <YOUR_ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com
 
-# Build for ARM64 (Agentcore requirement)
+# Build for ARM64 (Agentcore requirement) and push to ECR
 docker buildx build \
     --platform linux/arm64 \
     -t <YOUR_ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/aws-ai-agent-dev:latest \
@@ -156,19 +103,9 @@ docker buildx build \
 ### Step 2: Deploy Infrastructure
 
 ```bash
-cd terraform
-
 # Configure variables
 cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars with your values:
-#   - aws_region
-#   - s3_bucket_name (must be globally unique)
-#   - cognito_user_pool_name
-#   - bedrock_knowledge_base_name
-#   - langfuse_public_key
-#   - langfuse_secret_key
 
-# Deploy
 terraform init
 terraform plan
 terraform apply
@@ -224,7 +161,7 @@ aws bedrock-agent list-ingestion-jobs \
 ### Step 4: Create Cognito User
 
 ```bash
-# Create user pool user
+# Create user pool user (this can be done via the Notebook provided)
 aws cognito-idp admin-create-user \
     --user-pool-id <USER_POOL_ID_FROM_TERRAFORM> \
     --username testuser \
@@ -384,21 +321,6 @@ POST /agent/query
 Response: Server-Sent Events with real-time agent progress
 
 ---
-
-## Testing Locally
-
-See comprehensive guide: **[docs/LOCAL_TESTING_GUIDE.md](docs/LOCAL_TESTING_GUIDE.md)**
-
-Covers:
-- Testing without AWS Cognito (mock auth)
-- Testing without Bedrock (mock LLM)
-- Stock price queries (works out of the box)
-- Streaming responses
-- Docker Compose testing
-- Jupyter notebook examples
-
----
-
 ## Observability
 
 **Dual provider support** via unified interface:
@@ -422,28 +344,6 @@ LANGSMITH_PROJECT=aws-ai-agent
 See: [docs/LANGSMITH_INTEGRATION.md](docs/LANGSMITH_INTEGRATION.md)
 
 ---
-
-## Deployment
-
-### Docker (Push to ECR for AgentCore)
-```bash
-docker login -u AWS -p $(aws ecr get-login-password --region us-east-2) 302703038631.dkr.ecr.us-east-2.amazonaws.com
-docker buildx build \
-    --platform linux/arm64 \
-    -t 302703038631.dkr.ecr.us-east-2.amazonaws.com/aws-ai-agent-dev:latest \
-    --push .
-```
-
-### AWS (Terraform)
-```bash
-cd terraform
-terraform init
-terraform apply
-# Creates: Cognito, S3, Bedrock KB, ECR, IAM, AgentCore Runtime
-```
-
----
-
 ## Project Structure
 
 ```
@@ -483,9 +383,7 @@ src/
 
 ## 📚 Documentation
 
-- **[Local Testing Guide](docs/LOCAL_TESTING_GUIDE.md)** - Step-by-step local development setup
 - **[Architecture Guide](docs/architecture.md)** - Clean Architecture design details
-- **[LangSmith Integration](docs/LANGSMITH_INTEGRATION.md)** - Alternative observability provider
 - **[Demo Notebook](notebooks/demo_deployed_endpoint.ipynb)** - User acceptance criteria validation
 
 ---
@@ -502,34 +400,6 @@ src/
 | `ENVIRONMENT` | No | production | Set to "development" for local testing |
 
 See `.env.example` for complete list.
-
----
-
-## 🎯 Assessment Completion Summary
-
-This implementation fulfills all technical requirements:
-
-✅ **AWS Services**: Agentcore, Cognito, Bedrock KB, S3, IAM
-✅ **Backend**: Python, FastAPI, LangGraph ReAct agent, yfinance API
-✅ **Authentication**: Cognito user pool with JWT tokens
-✅ **Observability**: Langfuse cloud free tier with traces
-✅ **Knowledge Base**: 3 Amazon financial documents ingested
-✅ **Tools**: 2 stock retrieval functions (realtime + historical)
-✅ **Streaming**: LangGraph `.astream()` with SSE responses
-✅ **Infrastructure**: Complete Terraform modules
-✅ **Validation**: Executable notebook with all 5 queries + screenshots
-
-**Key differentiators:**
-- 🏗️ Clean Architecture with dependency injection
-- 🔄 Swappable observability providers (Langfuse/LangSmith)
-- 🧪 Local testing without AWS dependencies
-- 📊 Comprehensive documentation
-
----
-
-## License
-
-MIT
 
 ---
 

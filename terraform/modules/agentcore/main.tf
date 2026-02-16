@@ -49,6 +49,9 @@ resource "aws_bedrockagentcore_agent_runtime" "main" {
     API_HOST                  = "0.0.0.0"
     API_PORT                  = "8080"
     LOG_LEVEL                 = "INFO"
+    # Disable AgentCore's default ADOT OTel configuration so Langfuse
+    # can use its own OTel TracerProvider without conflicts.
+    DISABLE_ADOT_OBSERVABILITY = "true"
   }
 
   tags = {

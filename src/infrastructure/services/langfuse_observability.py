@@ -5,6 +5,7 @@ from typing import Any, Optional
 
 from langfuse import Langfuse, get_client, propagate_attributes
 from langfuse.langchain import CallbackHandler
+from opentelemetry.sdk.trace import TracerProvider
 
 from src.domain.interfaces.observability_service import IObservabilityService
 from src.infrastructure.logging import get_logger
@@ -19,6 +20,9 @@ class LangfuseObservabilityService(IObservabilityService):
     1. Initialize Langfuse(public_key=..., secret_key=...) once at startup
     2. CallbackHandler() uses the singleton - no credential args needed
     3. Trace metadata (user_id, tags) is passed via config["metadata"] with langfuse_ prefix
+
+    An isolated TracerProvider is created to avoid conflicts with host environments
+    (e.g. AgentCore) that may set their own global OTel TracerProvider.
     """
 
     def __init__(
@@ -32,11 +36,16 @@ class LangfuseObservabilityService(IObservabilityService):
         self._host = host
         self._last_handler = None
 
-        # Initialize the Langfuse client
+        # Create an isolated TracerProvider so Langfuse doesn't reuse
+        # any global OTel provider set by the host environment (e.g. AgentCore).
+        isolated_provider = TracerProvider()
+
+        # Initialize the Langfuse client with the isolated provider
         self._langfuse = Langfuse(
             public_key=public_key,
             secret_key=secret_key,
             host=host,
+            tracer_provider=isolated_provider,
         )
 
         # Verify credentials

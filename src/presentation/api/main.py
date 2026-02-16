@@ -175,6 +175,64 @@ async def ping():
     return {"status": "healthy"}
 
 
+# Langfuse diagnostic endpoint
+@app.post("/debug/langfuse", tags=["debug"])
+async def debug_langfuse():
+    """Test Langfuse connectivity from inside the container."""
+    from src.di.container import get_container
+    import httpx
+    import base64
+
+    container = get_container()
+    obs = container.observability_service
+    results = {"provider": container.observability_provider}
+
+    if obs is None:
+        results["error"] = "No observability service configured"
+        return results
+
+    # Test auth
+    try:
+        results["auth_check"] = obs._langfuse.auth_check()
+    except Exception as e:
+        results["auth_error"] = str(e)
+
+    # Test OTLP endpoint
+    try:
+        url = obs._host + "/api/public/otel/v1/traces"
+        auth = "Basic " + base64.b64encode(
+            f"{obs._public_key}:{obs._secret_key}".encode()
+        ).decode()
+        resp = httpx.post(
+            url,
+            headers={"Authorization": auth, "Content-Type": "application/x-protobuf"},
+            content=b"",
+            timeout=10,
+        )
+        results["otlp_status"] = resp.status_code
+    except Exception as e:
+        results["otlp_error"] = str(e)
+
+    # Test creating a trace
+    try:
+        from langfuse.langchain import CallbackHandler
+        from langchain_core.runnables import RunnableLambda
+
+        handler = obs.get_langchain_callback(user_id="diag-test")
+        chain = RunnableLambda(lambda x: "diag-ok")
+        chain.invoke("test", config={
+            "callbacks": [handler],
+            "metadata": {"langfuse_user_id": "diag-test", "langfuse_tags": ["diagnostic"]},
+        })
+        results["trace_id"] = handler.last_trace_id
+        obs.flush()
+        results["flushed"] = True
+    except Exception as e:
+        results["trace_error"] = str(e)
+
+    return results
+
+
 # AgentCore invocation endpoint (required by AgentCore - sends to /invocations)
 @app.post("/invocations", tags=["agentcore"])
 async def invocations(request: Request):
