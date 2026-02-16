@@ -140,14 +140,20 @@ When answering questions:
 Think step by step and use the tools methodically to answer user queries accurately."""
 
     def _build_invoke_config(self, user_id: str) -> dict[str, Any]:
-        """Build LangGraph invoke config with observability callbacks."""
-        config: dict[str, Any] = {}
+        """Build LangGraph invoke config with observability callbacks.
+
+        In Langfuse v3, trace attributes are passed via config["metadata"]
+        with langfuse_ prefix. The CallbackHandler reads these automatically.
+        """
+        config: dict[str, Any] = {
+            "metadata": {
+                "langfuse_user_id": user_id,
+                "langfuse_tags": ["agent_query"],
+            },
+        }
 
         if self._observability:
-            callback = self._observability.get_langchain_callback(
-                user_id=user_id,
-                tags=["agent_query"],
-            )
+            callback = self._observability.get_langchain_callback(user_id=user_id)
             if callback is not None:
                 config["callbacks"] = [callback]
 
@@ -231,12 +237,8 @@ Think step by step and use the tools methodically to answer user queries accurat
                 self._observability.flush()
                 try:
                     handler = getattr(self._observability, '_last_handler', None)
-                    if handler:
-                        # Try different methods to get trace ID
-                        if hasattr(handler, 'get_trace_id'):
-                            trace_id = handler.get_trace_id()
-                        elif hasattr(handler, 'trace_id'):
-                            trace_id = handler.trace_id
+                    if handler and hasattr(handler, 'last_trace_id'):
+                        trace_id = handler.last_trace_id
                         if trace_id:
                             trace_url = self._observability.get_trace_url(trace_id)
                             logger.info("Langfuse trace captured", extra={"trace_id": trace_id, "trace_url": trace_url})

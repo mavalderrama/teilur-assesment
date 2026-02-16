@@ -25,7 +25,7 @@ class LangfuseObservabilityService(IObservabilityService):
         self,
         public_key: str,
         secret_key: str,
-        host: str = "https://cloud.langfuse.com",
+        host: str = "https://us.cloud.langfuse.com",
     ) -> None:
         self._public_key = public_key
         self._secret_key = secret_key
@@ -56,17 +56,14 @@ class LangfuseObservabilityService(IObservabilityService):
         tags: Optional[list[str]] = None,
         metadata: Optional[dict[str, Any]] = None,
     ) -> Any:
-        """Get a Langfuse CallbackHandler for automatic LangChain/LangGraph tracing."""
+        """Get a Langfuse CallbackHandler for automatic LangChain/LangGraph tracing.
+
+        In v3, CallbackHandler() takes no credential args — it uses the singleton
+        Langfuse client initialized in __init__. Trace attributes (user_id, tags, etc.)
+        are passed via config["metadata"] with langfuse_ prefix when invoking the graph.
+        """
         try:
-            handler = CallbackHandler(
-                public_key=self._public_key,
-                secret_key=self._secret_key,
-                host=self._host,
-                user_id=user_id,
-                session_id=session_id,
-                tags=tags or ["agent_query"],
-                metadata=metadata,
-            )
+            handler = CallbackHandler(update_trace=True)
             self._last_handler = handler
             logger.info("Langfuse CallbackHandler created", extra={"user_id": user_id})
             return handler
@@ -190,14 +187,8 @@ class LangfuseObservabilityService(IObservabilityService):
             return None
 
     def flush(self) -> None:
-        if self._last_handler:
-            try:
-                self._last_handler.langfuse.flush()
-                logger.info("Langfuse handler flushed")
-            except Exception as e:
-                logger.error(f"Langfuse handler flush failed: {e}")
         try:
             self._langfuse.flush()
-            logger.info("Langfuse client flushed")
+            logger.info("Langfuse flushed")
         except Exception as e:
-            logger.error(f"Langfuse client flush failed: {e}")
+            logger.error(f"Langfuse flush failed: {e}")
